@@ -1,0 +1,13 @@
+/* Sonde1090 popup: deliberately scoped so tar1090 styles are unaffected. */
+.sonde1090-popup {
+    padding: 9px 12px;
+    background: rgba(24, 29, 34, 0.96);
+    color: #f6f6f6;
+    border: 1px solid #ffba45;
+    border-radius: 7px;
+    font: 12px/1.5 sans-serif;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.35);
+    pointer-events: none;
+    min-width: 170px;
+}
+.sonde1090-popup strong { font-size: 14px; }
