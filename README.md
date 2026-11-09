@@ -17,7 +17,28 @@ payload_summary_host = <broadcast>
 payload_summary_port = 55673
 ```
 
-If auto_rx is running on another machine, set `payload_summary_host` to the machine running the bridge. Make sure UDP port 55673 is reachable.
+By default, auto_rx sends to the local network's broadcast address. Multiple listeners on that network can receive the same packets. If auto_rx is running elsewhere, check that broadcasts reach the bridge, especially with Docker or different subnets.
+
+### Keep an existing UDP receiver
+
+The `oziplotter` settings allow only one destination. To keep another UDP listener working, point auto_rx at the Sonde1090 bridge and forward the original datagrams:
+
+```ini
+[oziplotter]
+payload_summary_enabled = True
+payload_summary_host = 192.168.1.10
+payload_summary_port = 55674
+```
+
+Run Sonde1090 on `192.168.1.10`, forwarding to the existing listener on `192.168.1.20:55673`:
+
+```sh
+python3 -m sonde1090 --port 55674 --forward 192.168.1.20:55673 --output /path/to/tar1090/html/sondes.geojson
+```
+
+Use the actual IPs and ports for your setup. If the existing listener is on the bridge machine, use `--forward 127.0.0.1:55673`. The incoming port must be different in that case so the two programs do not compete for the same UDP port. `--forward` can be specified multiple times.
+
+SondeHub uploads are configured separately in auto_rx and do not require this relay.
 
 Clone the repo and find the directory **actually served** by your tar1090 web server (the one containing `index.html`, `config.js`, and `layers.js`):
 
@@ -61,6 +82,7 @@ python3 -m sonde1090 --help
 --write-interval  File update interval in seconds (default: 2)
 --max-points      Trail length per sonde (default: 240)
 --max-sondes      Maximum tracked sondes (default: 100)
+--forward HOST:PORT  Forward raw UDP to another receiver (repeatable)
 --verbose         Log received packets
 ```
 

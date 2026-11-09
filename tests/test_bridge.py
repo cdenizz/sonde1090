@@ -1,10 +1,12 @@
+import argparse
 import json
+import socket
 from pathlib import Path
 import stat
 import tempfile
 import unittest
 
-from sonde1090.bridge import SondeStore, clean_packet, write_geojson
+from sonde1090.bridge import SondeStore, clean_packet, write_geojson, parse_forward_target, forward_packet
 
 
 def packet(**updates):
@@ -101,6 +103,23 @@ class TestStore(unittest.TestCase):
             if hasattr(stat, "S_IRGRP"):
                 self.assertTrue(path.stat().st_mode & stat.S_IROTH)
             self.assertEqual(list(path.parent.glob("*.tmp")), [])
+
+
+class TestForwarding(unittest.TestCase):
+    def test_parse_forward_target(self):
+        self.assertEqual(parse_forward_target("192.168.1.20:55673"), ("192.168.1.20", 55673))
+        for value in ("", "localhost", ":55673", "host:0", "host:65536", "host:abc", "0.0.0.0:1000"):
+            with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
+                parse_forward_target(value)
+
+    def test_forwarded_packet_is_unchanged(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+            listener.bind(("127.0.0.1", 0))
+            listener.settimeout(1)
+            raw = json.dumps(packet()).encode()
+            forward_packet(raw, sender, [("127.0.0.1", listener.getsockname()[1])])
+            received, _ = listener.recvfrom(65535)
+            self.assertEqual(received, raw)
 
 
 if __name__ == "__main__":

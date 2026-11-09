@@ -149,21 +149,43 @@ def write_geojson(path: Path, data: dict[str, Any]) -> None:
             os.unlink(tmp_name)
 
 
+def parse_forward_target(value: str) -> tuple[str, int]:
+    host, sep, port_text = value.rpartition(":")
+    if not sep or not host or not port_text.isdecimal():
+        raise argparse.ArgumentTypeError("expected HOST:PORT")
+    port = int(port_text)
+    if not 1 <= port <= 65535 or host == "0.0.0.0":
+        raise argparse.ArgumentTypeError("invalid forward destination")
+    return host, port
+
+
+def forward_packet(packet: bytes, sock: socket.socket, targets: list[tuple[str, int]]) -> None:
+    for target in targets:
+        try:
+            sock.sendto(packet, target)
+        except OSError as exc:
+            LOG.warning("Could not forward UDP to %s:%d: %s", *target, exc)
+
+
 def run(args: argparse.Namespace) -> None:
     output = Path(args.output).expanduser().resolve()
     store = SondeStore(args.ttl, args.max_points, args.max_sondes)
     write_geojson(output, store.geojson())
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as relay:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((args.host, args.port))
         sock.settimeout(min(args.write_interval, 1.0))
         LOG.info("Listening for Horus UDP on %s:%s", args.host, args.port)
         LOG.info("Publishing GeoJSON to %s", output)
+        for target in args.forward:
+            LOG.info("Forwarding UDP to %s:%d", *target)
         last_write = time.monotonic()
         dirty = False
         while True:
             try:
                 packet, _ = sock.recvfrom(65535)
+                if args.forward:
+                    forward_packet(packet, relay, args.forward)
                 try:
                     payload = json.loads(packet)
                 except (UnicodeDecodeError, json.JSONDecodeError):
@@ -191,10 +213,14 @@ def main() -> None:
     parser.add_argument("--write-interval", type=float, default=2.0, help="GeoJSON publishing interval")
     parser.add_argument("--max-points", type=int, default=240, help="Maximum trail positions per sonde")
     parser.add_argument("--max-sondes", type=int, default=100, help="Maximum simultaneously tracked sondes")
+    parser.add_argument("--forward", type=parse_forward_target, action="append", default=[], metavar="HOST:PORT", help="Forward raw UDP packets to another listener; repeat for more")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     if not (1 <= args.port <= 65535) or args.write_interval <= 0:
         parser.error("port must be 1..65535 and write-interval must be positive")
+    for host, port in args.forward:
+        if port == args.port and host.lower() in ("localhost", "127.0.0.1", args.host.lower()):
+            parser.error("forward destination points to the bridge itself")
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
